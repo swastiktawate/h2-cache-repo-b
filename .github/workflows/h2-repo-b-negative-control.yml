@@ -1,0 +1,44 @@
+# H2 test — Repo B NEGATIVE CONTROL workflow
+# Place at: <repo-b>/.github/workflows/h2-repo-b-negative-control.yml
+# Purpose: prove the test harness itself reports a clean miss. This workflow
+# restores a key that was NEVER saved anywhere, in either repo. Expected
+# outcome: cache-hit is empty/false, no marker file, no h2-cache-dir content.
+# If this control ever HITS, the harness is broken (key reuse / stale entry):
+# stop, delete all H2 test caches via the API, generate fresh keys, rerun.
+# Run this BEFORE the repo B restorer, and again AFTER it, to bracket the test.
+# No actions/checkout step: workspace starts empty. Restore-only action.
+
+name: H2 repo B - negative control (never-saved key)
+
+on:
+  workflow_dispatch:
+    inputs:
+      control_key:
+        description: "A key never saved anywhere. Generate fresh each run, e.g. h2-never-saved-<openssl rand -hex 8>."
+        required: true
+        type: string
+
+jobs:
+  control:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Attempt restore of a never-saved key
+        id: restore-control
+        uses: actions/cache/restore@v6
+        with:
+          path: h2-cache-dir
+          key: ${{ inputs.control_key }}
+
+      - name: Verify clean miss
+        run: |
+          echo "cache-hit=${{ steps.restore-control.outputs.cache-hit }}"
+          echo "cache-primary-key=${{ steps.restore-control.outputs.cache-primary-key }}"
+          echo "cache-matched-key=${{ steps.restore-control.outputs.cache-matched-key }}"
+          echo "repo=${{ github.repository }}"
+          echo "run_id=${{ github.run_id }}"
+          if [ -e h2-cache-dir/marker.txt ]; then
+            echo "RESULT: CONTROL FAILED - marker file present for a never-saved key. Harness broken, do not trust other results."
+            cat h2-cache-dir/marker.txt
+          else
+            echo "RESULT: CONTROL PASSED - clean miss, no marker file (expected)"
+          fi

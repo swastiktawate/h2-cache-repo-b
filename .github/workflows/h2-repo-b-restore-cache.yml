@@ -1,0 +1,93 @@
+# H2 test — Repo B restorer workflow
+# Place at: <repo-b>/.github/workflows/h2-repo-b-restore-cache.yml
+# Repo B: a DIFFERENT repo owned by Swastik (e.g. swastiktawate/h2-cache-repo-b).
+# For the strongest impact statement, make repo B PUBLIC while repo A stays
+# PRIVATE: then a hit would mean private repo A content surfaced in a public
+# repo's run. (Both repos are his own; no other user's data is involved.)
+# Purpose: attempt to restore repo A's cache entry from repo B, two ways:
+#   job 1 (exact-key): restore the exact key repo A saved.
+#   job 2 (prefix-key): restore via a restore-keys prefix that matches repo A's key.
+# Uses actions/cache/restore ONLY (restore-only, never saves), so repo B can
+# never create the entry itself: a hit can only come from repo A's entry.
+# No actions/checkout step: the workspace starts empty, so a marker file
+# found in h2-cache-dir can only have arrived through the cache restore.
+# Trigger: workflow_dispatch only. Run AFTER the repo A saver has completed.
+
+name: H2 repo B - attempt cross-repo restore
+
+on:
+  workflow_dispatch:
+    inputs:
+      marker:
+        description: "The exact marker string repo A saved. Used only to compare against a restored file."
+        required: true
+        type: string
+      cache_key:
+        description: "Exact cache key repo A saved under."
+        required: true
+        default: "h2-cross-repo-test-v1"
+        type: string
+
+jobs:
+  exact-key:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Attempt exact-key restore (restore-only, never saves)
+        id: restore-exact
+        uses: actions/cache/restore@v6
+        with:
+          path: h2-cache-dir
+          key: ${{ inputs.cache_key }}
+
+      - name: Check for repo A marker
+        run: |
+          echo "cache-hit=${{ steps.restore-exact.outputs.cache-hit }}"
+          echo "cache-primary-key=${{ steps.restore-exact.outputs.cache-primary-key }}"
+          echo "cache-matched-key=${{ steps.restore-exact.outputs.cache-matched-key }}"
+          echo "repo=${{ github.repository }}"
+          echo "run_id=${{ github.run_id }}"
+          if [ -f h2-cache-dir/marker.txt ]; then
+            echo "MARKER FILE PRESENT"
+            cat h2-cache-dir/marker.txt
+            sha256sum h2-cache-dir/marker.txt
+            if grep -qx "${{ inputs.marker }}" h2-cache-dir/marker.txt; then
+              echo "RESULT: CROSS-REPO READ CONFIRMED - marker matches repo A exactly"
+            else
+              echo "RESULT: file present but content differs from repo A marker - investigate, do not report yet"
+            fi
+          else
+            echo "RESULT: no marker file - exact-key restore missed (boundary held for exact key)"
+          fi
+
+  prefix-key:
+    runs-on: ubuntu-latest
+    needs: exact-key
+    steps:
+      - name: Attempt prefix restore-keys match
+        id: restore-prefix
+        uses: actions/cache/restore@v6
+        with:
+          path: h2-cache-dir
+          key: h2-cross-repo-test-UNUSED-KEY
+          restore-keys: |
+            h2-cross-repo-test-
+
+      - name: Check for repo A marker
+        run: |
+          echo "cache-hit=${{ steps.restore-prefix.outputs.cache-hit }}"
+          echo "cache-primary-key=${{ steps.restore-prefix.outputs.cache-primary-key }}"
+          echo "cache-matched-key=${{ steps.restore-prefix.outputs.cache-matched-key }}"
+          echo "repo=${{ github.repository }}"
+          echo "run_id=${{ github.run_id }}"
+          if [ -f h2-cache-dir/marker.txt ]; then
+            echo "MARKER FILE PRESENT"
+            cat h2-cache-dir/marker.txt
+            sha256sum h2-cache-dir/marker.txt
+            if grep -qx "${{ inputs.marker }}" h2-cache-dir/marker.txt; then
+              echo "RESULT: CROSS-REPO READ CONFIRMED via restore-keys prefix - marker matches repo A exactly"
+            else
+              echo "RESULT: file present but content differs from repo A marker - investigate, do not report yet"
+            fi
+          else
+            echo "RESULT: no marker file - prefix restore missed (boundary held for restore-keys)"
+          fi
